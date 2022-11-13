@@ -33,9 +33,14 @@ end
 
 GPUCompiler.runtime_module(::CompilerJob{<:Any, WasmCompilerParams}) = Main.WasmRuntime
 
+function testingFunc(b)
+	# print("Hello") # TODO this has to be captured and changed into console.log function
+	return b*b
+end
+
 function constMul(a)
 	b = a*2.10
-	return b
+	return testingFunc(b)
 end
 
 function wasm_job(@nospecialize(func), @nospecialize(types); kernel::Bool=false, name=GPUCompiler.safe_name(repr(func)), kwargs...)
@@ -45,16 +50,6 @@ function wasm_job(@nospecialize(func), @nospecialize(types); kernel::Bool=false,
 	job = CompilerJob(target, source, params)
 	(job, kwargs)
 end
-
-# res = GPUCompiler.compile(:obj, job)[1]
-# f = open("obj.o", "w+")
-# write(f, res)
-# close(f)
-
-# (job, kwargs) = wasm_job(kernel, (Int32,))
-
-# GPUCompiler.codegen(:obj, job; strip=true, only_entry=false, validate=true)
-
 
 function generate_wasm(f, tt; path="./temp", name=GPUCompiler.safe_name(repr(f)), 
 		filename=string(name),
@@ -95,5 +90,6 @@ function generate_wasm(f, tt; path="./temp", name=GPUCompiler.safe_name(repr(f))
 	
 end
 
-generate_wasm(constMul, (Int32,))
-
+if abspath(PROGRAM_FILE) == @__FILE__
+	generate_wasm(constMul, (Int32,))
+end
