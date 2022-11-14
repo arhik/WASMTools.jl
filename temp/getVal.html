@@ -1,0 +1,11 @@
+        <!DOCTYPE html>
+
+        <script type="module">
+          async function init() {
+            const { instance } = await WebAssembly.instantiateStreaming(
+              fetch("getVal.wasm")
+            );
+            console.log(instance.exports.getVal(4));
+          }
+          init();
+        </script>
