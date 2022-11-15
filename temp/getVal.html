@@ -3,9 +3,21 @@
         <script type="module">
           async function init() {
             const { instance } = await WebAssembly.instantiateStreaming(
-              fetch("getVal.wasm")
+              fetch("getVal.wasm"),
+                        {
+                                "env" : {
+                                        "memset" : (...args) => { console.error("Not Implemented")},
+                                        "malloc" : (...args) => { console.error("Not Implemented")},
+                                        "realloc" : (...args) => { console.error("Not Implemented")},
+                                        "free" : (...args) => { console.error("Not Implemented")},
+                                        "memcpy" : (...args) => { console.error("Not Implemented")},
+                                        "stbsp_sprintf" : (...args) => { console.error("Not Implemented")},
+                                        "memcmp" : (...args) => { console.error("Not Implemented")},
+                                        "write" : (...args) => { console.error("Not Implemented")},
+                                }
+                        }
             );
-            console.log(instance.exports.getVal(4));
+            console.log(instance.exports.getVal(2));
           }
           init();
         </script>

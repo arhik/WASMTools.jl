@@ -1,10 +1,15 @@
 using GPUCompiler
 using LLVM
 using Serialization
+using Clang_jll
+using StaticTools
 
 HOMEPATH=ENV["HOME"]
 WASI_SYSROOT="/Users/arhik/November2022/wasi-sdk/dist/wasi-sysroot"
-WASI_SDK = "/Users/arhik/November2022/wasi-sdk/dist/wasi-sdk-16.5ga0a342ac182c/lib/clang/14.0.4"
+WASI_SDKROOT = "/Users/arhik/November2022/wasi-sdk/dist/wasi-sdk-16.5ga0a342ac182c"
+WASI_Clang_lib = "$(WASI_SDKROOT)/lib/clang/14.0.4"
+WASI_ClangRT = "$(WASI_Clang_lib)/lib/wasi/libclang_rt.builtins-wasm32.a"
+WASI_Clang = "$(WASI_SDKROOT)/bin/clang"
 
 module WasmRuntime
 	signal_exception() = return
@@ -47,21 +52,23 @@ function constMul(a)
 end
 
 
-function getVal(key)
-	d = Dict{Int32, String}()
-	d[1] = "One"
-	d[2] = "Two"
-	d[3] = "Three"
-	get(d, key, "None")
+function getVal(key)::StaticString
+	d = Dict{Int32, StaticString}()
+	d[1] = c"One"
+	d[2] = c"Two"
+	d[3] = c"Three"
+	get(d, key, c"None")
 end
 
-function main(argc::Int, argv::Ptr{Ptr{UInt8}})
-	key = argparse(Int64, argv, 2)
-	if key > 4
-		return -1
-	else
-		getVal(key)
-	end
+using StaticTools
+
+function print_args(argc::Int32, argv::Ptr{Ptr{UInt8}})
+    # for i=1:argc
+        # pᵢ = unsafe_load(argv, i) # Get pointer
+        # strᵢ = MallocString(pᵢ) # Can wrap to get high-level interface
+        # println(strᵢ)
+    # end
+    return Int32(0)
 end
 
 function wasm_job(@nospecialize(func), @nospecialize(types); kernel::Bool=false, name=GPUCompiler.safe_name(repr(func)), kwargs...)
@@ -74,7 +81,7 @@ end
 
 function generate_wasm(f, tt; wasi=false, path="./temp", name=GPUCompiler.safe_name(repr(f)), 
 		filename=string(name),
-		cflags=`--nostdlib`,
+		cflags=`-nostartfiles -nostdlib -Wl,--export-all -Wl,--no-entry -Wl,--allow-undefineds`,
 		kwargs...
 	)
 	mkpath(path)
@@ -88,12 +95,42 @@ function generate_wasm(f, tt; wasi=false, path="./temp", name=GPUCompiler.safe_n
 		write(io, obj)
 	end
 
+	cc = nothing
+	if Sys.isapple()
+		local cc
+		cc = "$WASI_Clang"
+		# entry = "$name"
+		# run(`$cc --target=wasm32-unknown-wasi -v -e $entry $cflags $objPath -o $execPath`)
+	end
+
+
 	if wasi==true
-		run(`wasm-ld -m wasm32 --export-all -L$WASI_SYSROOT/lib/wasm32-wasi
-		     $WASI_SYSROOT/lib/wasm32-wasi/crt1.o $objPath -o $(execPath)
-	      	-lc $WASI_SDK/lib/wasi/libclang_rt.builtins-wasm32.a `)
+		wrapper_path = joinpath(path, "wrapper.c")
+		wrap_obj = joinpath(path, "wrapper.o")
+		f = open(wrapper_path, "w")
+		print(f, """int $name(int argc, char** argv);
+		void* __stack_chk_guard = (void*) $(rand(UInt) >> 1);
+		__stack_chk_fail (void)
+		{
+		  // printf("stack smashing detected");
+		}
+
+
+		int main(int argc, char** argv)
+		{
+		    $name(argc, argv);
+		    return 0;
+		}""")
+		close(f)
+
+		run(`$cc --target=wasm32-unknown-wasi -e $filename $wrapper_path -c $cflags -L$(WASI_SYSROOT)/lib/wasm32-wasi
+			 $objPath -o $wrap_obj -lc $(WASI_ClangRT) `)
+ 		run(`wasm-ld -m wasm32 --export-all -L$(WASI_SYSROOT)/lib/wasm32-wasi \
+		     $(WASI_SYSROOT)/lib/wasm32-wasi/crt1.o $objPath $wrap_obj \
+	      	-lc $(WASI_ClangRT) -o $(execPath)`)
+
 	else
-    	run(`wasm-ld --no-entry --export-all $objPath -o $(execPath)`)
+    	run(`wasm-ld --no-entry --export-all --allow-undefined $objPath -o $(execPath)`)
     end
 
 	html_ = """
@@ -102,13 +139,26 @@ function generate_wasm(f, tt; wasi=false, path="./temp", name=GPUCompiler.safe_n
 		<script type="module">
 		  async function init() {
 		    const { instance } = await WebAssembly.instantiateStreaming(
-		      fetch("$(filename).wasm")
+		      fetch("$(filename).wasm"),
+				{
+					"env" : {
+						"memset" : (...args) => { console.error("Not Implemented")},
+						"malloc" : (...args) => { console.error("Not Implemented")},
+						"realloc" : (...args) => { console.error("Not Implemented")},
+						"free" : (...args) => { console.error("Not Implemented")},
+						"memcpy" : (...args) => { console.error("Not Implemented")},
+						"stbsp_sprintf" : (...args) => { console.error("Not Implemented")},
+						"memcmp" : (...args) => { console.error("Not Implemented")},
+						"write" : (...args) => { console.error("Not Implemented")},
+					}
+				}
 		    );
-		    console.log(instance.exports.$(filename)(4));
+		    console.log(instance.exports.$(filename)(2));
 		  }
 		  init();
 		</script>
 	"""
+	
 	open(htmlPath, "w") do io
 		write(io, html_)
 	end
@@ -118,5 +168,6 @@ function generate_wasm(f, tt; wasi=false, path="./temp", name=GPUCompiler.safe_n
 end
 
 if abspath(PROGRAM_FILE) == @__FILE__
-	generate_wasm(main, (Int, Ptr{Ptr{UInt8}}))
+	generate_wasm(getVal, (Int32,); wasi=false)
 end
+

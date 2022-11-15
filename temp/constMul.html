@@ -3,9 +3,11 @@
         <script type="module">
           async function init() {
             const { instance } = await WebAssembly.instantiateStreaming(
-              fetch("constMul.wasm")
+              fetch("constMul.wasm"),
+              
+
             );
-            console.log(instance.exports.julia_constMul(4));
+            console.log(instance.exports.constMul(2));
           }
           init();
         </script>
