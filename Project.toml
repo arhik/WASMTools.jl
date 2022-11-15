@@ -10,6 +10,7 @@ Serialization = "9e88b42a-f829-5b0c-bbe9-9e923198166b"
 Wasmer = "8b6544c4-d78b-4947-8efb-e940865fd006"
 
 [compat]
+LLVM = "4"
 julia = "1.8"
 
 [extras]
