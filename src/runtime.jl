@@ -25,7 +25,7 @@ function loadWasm(path)
 	end
 end
 
-# Usage
+# # Usage
 # loadWasm("temp/constMul.wasm")
 # constMul(Int32(1))
 
@@ -33,4 +33,3 @@ end
 # Also adapt the values passed to the functions using Adapt.jl
 
 # Wasi dependendency cases  ?
-

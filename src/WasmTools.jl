@@ -1,8 +1,17 @@
 module WasmTools
 
-# Write your package code here.
+using LLVM
+using LLVM.Interop
 
-include("target.jl")
+using ExprTools: splitdef, combinedef
+using TimerOutputs
+using Logging
+using UUIDs
+using Libdl
+
+# Write your package code here.
 include("runtime.jl")
+include("target.jl")
+include("jsrender.jl")
 
 end
