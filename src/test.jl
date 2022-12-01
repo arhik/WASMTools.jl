@@ -41,6 +41,7 @@ function GPUCompiler.process_module!(@nospecialize(job::GPUCompiler.CompilerJob{
     end
 end
 
+
 function wasm_job(@nospecialize(func), @nospecialize(types); kernel::Bool=false, name=GPUCompiler.safe_name(repr(func)), kwargs...)
 	source = GPUCompiler.FunctionSpec(func, Base.to_tuple_type(types), kernel, name)
 	target = WasmCompilerTarget()
@@ -181,11 +182,16 @@ function generate_wasm(f, tt; wasi=false, path="./temp", name=GPUCompiler.safe_n
 				for inst in instructions(bb)
 					if inst isa LLVM.IntToPtrInst
 						oprnd = LLVM.operands(inst) |> first
+						# Trunc 32bit to 32 bit is redundant
 						if oprnd isa LLVM.TruncInst
 							val = LLVM.operands(oprnd) |> first
-							LLVM.API.LLVMSetOperand(inst, 0, val)
-							delete!(bb, oprnd)
-							@warn bb
+							if llvmtype(val) == LLVM.Int32Type(ctx)
+								LLVM.API.LLVMSetOperand(inst, 0, val)
+								delete!(bb, oprnd)
+								@warn bb
+							else
+								@info "Leaving truncation alone"
+							end
 						end
 					end
 				end
@@ -194,9 +200,13 @@ function generate_wasm(f, tt; wasi=false, path="./temp", name=GPUCompiler.safe_n
 						@error "Uses of TruncInst" LLVM.uses(inst)
 						for use in LLVM.uses(inst)
 							val = LLVM.operands(inst) |> first
-							LLVM.API.LLVMSetOperand(LLVM.user(use), 0, val) # TODO get index somehow
-							delete!(bb, inst)
-							@warn bb
+							if llvmtype(val) == LLVM.Int32Type(ctx)
+								LLVM.API.LLVMSetOperand(LLVM.user(use), 0, val) # TODO get index somehow
+								delete!(bb, inst)
+								@warn bb
+							else
+								@info "Leaving truncation alone"
+							end
 						end
 						@error "End of Uses"
 						# TODO check if its a derivative of PointerType
@@ -215,7 +225,7 @@ function generate_wasm(f, tt; wasi=false, path="./temp", name=GPUCompiler.safe_n
 			# br!(builder, blocks(newFn)[1]) # TODO WASM
 			if !LLVM.isdeclaration(fn)
 				fname = LLVM.name(fn)
-				@assert isempty(uses(fn)) 
+				# @assert isempty(uses(fn))
 				# TODO assert only on actual functions and ignore declared only functions
 			    replace_metadata_uses!(fn, newFn)
 			    unsafe_delete!(mod, fn)
@@ -247,6 +257,7 @@ function generate_wasm(f, tt; wasi=false, path="./temp", name=GPUCompiler.safe_n
 	end
 	
 	if wasi==true
+		# TODO
       	run(`wasm-ld -m wasm32 --export-all $objPath -o $(execPath)`)
 	else
     	run(`wasm-ld -m wasm32 --no-entry --export-all --allow-undefined $objPath -o $(execPath)`)
@@ -337,13 +348,17 @@ function render(filename)
 							const string = decoder.decode(array)
 							console.log(string)
 							return string
+						},
+						"malloc" : (len) => {
+							new Uint8Array()
 						}
 					}
 				}
 		    );
 	        const array = new Int32Array(instance.exports.memory.buffer, 0, 5)
   			array.set([3, 15, 18, 4, 2])
-		    console.log(instance.exports.julia_$filename(array.byteOffset, array.length))
+		   	console.log(instance.exports.julia_$filename(array.byteOffset, array.length))
+		    // console.log(instance.exports.julia_$filename(3))
 		  }
 		  init();
 		</script>
@@ -423,13 +438,14 @@ end
 end
 
 function constMul(a)
-	b = (a)*41.3
-	s = c"Hello"
-	l = length(s) |> UInt32
-	ptr_s = pointer(s)
-	toJSString(ptr_s, l)
+	b = (a)*41.3f0
+	# s = c"Hello"
+	# l = length(s) |> UInt32
+	# ptr_s = pointer(s)
+	# toJSString(ptr_s, l)
 	return b
 end
+
 
 function genWasm(f, args...; wasi=false)
 	generate_wasm(f, args...; wasi=wasi)
@@ -455,41 +471,46 @@ end
 	# return unsafe_load(ptr, 3 |> UInt32)
 # end
 
-function sumArrayInt32(ptr::Ptr{UInt32}, len::UInt32)
-	total::UInt32 = 0 # TODO we should capture these eventually in macros maybe
-	for i in 1:len
-		total+= unsafe_load(ptr, i |> UInt32)
-	end
-	return total
-end
+# function sumArrayInt32(ptr::Ptr{UInt32}, len::UInt32)
+	# total::UInt32 = 0 # TODO we should capture these eventually in macros maybe
+	# for i in 1:len
+		# total+= unsafe_load(ptr, i |> UInt32)
+	# end
+	# return total
+# end
 
-# Passing strings 
-function cconsoleLog(str::String)
+# Passing strings
+function cconsoleLog(str::StaticString)
 	ptr = pointer(str)
 	len::UInt32 = Base.length(str)
 	printString(ptr, len)
 end
 
-# function sumArrayInt32(idx::UInt32, len::UInt32)
-	# memory = getMemory()
-	# # consoleLog(memory)
-	# return readGMemory(memory)
-# end
-# 
-
-# function write()
-# 
-# end
+function readInt32Array(ptr::Ptr{UInt32}, len::UInt32)
+	memory = getMemory()
+	consoleLog(memory)
+	return readGMemory(memory)
+end
 
 # function sumArrayInt32(ptr::Ptr{UInt32}, len::UInt32)
-	# array = unsafe_wrap(Array{UInt32}, ptr, len)
-	# return sum(array)
+	# mem = getMemory()
+	# # memptr = convert(Ptr{UInt32}, mem)
+	# return mem
+	# # array = unsafe_wrap(MallocArray{UInt32}, ptr, (len,))
+	# # return sum(array)
 # end
+
+function printf()
+	a = (0x48, 0x65, 0x6c, 0x6c, 0x6f, 0x00)
+	printString(pointer(a), Base.length(a))
+end
 
 # genWasm(addTwoInts, (UInt32, UInt32); wasi=false)
 
 # genWasm(sumArrayInt32, (Ptr{UInt32}, UInt32); wasi=false)
 
-genWasm(cconsoleLog, (String,); wasi=false)
-
+# genWasm(cconsoleLog, (StaticString,); wasi=false)
+# genWasm(readInt32Array, (Ptr{UInt32}, UInt32); wasi=false)
+# genWasm(constMul, (UInt32,); wasi=false)
+genWasm(printf, (); wasi=false)
 
