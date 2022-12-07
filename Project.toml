@@ -16,7 +16,15 @@ TimerOutputs = "a759f4b9-e2f1-59dc-863e-4aeb61b1ea8f"
 UUIDs = "cf7118a7-6976-5b1a-9a39-7adc72f591a4"
 
 [compat]
-julia = "1.8"
+Clang_jll = "^13.0"
+ExprTools = "^0.1.8"
+GPUCompiler = "^0.16"
+LLVM = "^4.14"
+MacroTools = "^0.5"
+StaticTools = "^0.8"
+TOML = "^1.0"
+TimerOutputs = "^0.5"
+julia = "^1.8"
 
 [extras]
 Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
